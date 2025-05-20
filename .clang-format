@@ -1,0 +1,28 @@
+# .clang-format for a C project
+BasedOnStyle:    LLVM  # Alternatives: Google, Mozilla, WebKit, GNU
+IndentWidth:     4
+TabWidth:        4
+UseTab:          Never  # Change to ForIndentation if you want to use tabs
+BreakBeforeBraces: Allman  # Alternatives: Attach, Linux, Mozilla, Stroustrup
+AllowShortIfStatementsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: InlineOnly
+ColumnLimit:     100
+IndentCaseLabels: true
+AlignAfterOpenBracket: Align
+AlignOperands:   true
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: true
+SpaceBeforeParens: ControlStatements  # Only for if, while, for, etc.
+Cpp11BracedListStyle: false
+SortIncludes:    true
+IncludeBlocks:   Regroup
+ReflowComments:  true
+PointerAlignment: Left  # Alternatives: Right, Middle
+AlwaysBreakAfterReturnType: None  # Avoid unnecessary newlines
+KeepEmptyLinesAtTheStartOfBlocks: false
+
+# Extra settings for clarity
+SpacesInParentheses: false
+SpaceInEmptyParentheses: false
+SpaceAfterCStyleCast: true
+
