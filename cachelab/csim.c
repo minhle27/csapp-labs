@@ -6,15 +6,18 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-void printUsage(char* progname)
-{
-    printf("Usaage: %s [-hv] -s <s> -E <E> -b <b> -t <tracefile>\n", progname);
-}
+int missCnt  = 0;
+int hitCnt   = 0;
+int evictCnt = 0;
+
+int   h_flag = 0, v_flag = 0;
+int   s = -1, E = -1, b = -1;
+char* tracefile = NULL;
 
 typedef struct
 {
-    bool  isValid;
-    char* tag;
+    bool          isValid;
+    unsigned long tag;
 } CacheLine;
 
 typedef struct
@@ -23,13 +26,79 @@ typedef struct
     CacheLine* lines;
 } CacheSet;
 
+void printUsage(char* progname)
+{
+    printf("Usage: %s [-hv] -s <s> -E <E> -b <b> -t <tracefile>\n", progname);
+}
+
+unsigned long parseSetIndex(unsigned long addr)
+{
+    unsigned long shifted = addr >> b;
+    unsigned long mask    = (1UL << s) - 1;
+    return shifted & mask;
+}
+
+unsigned long parseTagBits(unsigned long addr)
+{
+    return addr >> (s + b);
+}
+
+bool initCache(CacheSet** p_cache)
+{
+    CacheSet* cache = (CacheSet*) malloc((1 << s) * sizeof(CacheSet));
+    if (cache == NULL)
+    {
+        printf("Mem Alloc for cache failed\n");
+        return false;
+    }
+
+    for (unsigned long i = 0; i < (1 << s); ++i)
+    {
+        cache[i].numLines = 0;
+        cache[i].lines    = (CacheLine*) malloc(E * sizeof(CacheLine));
+        for (int j = 0; j < E; j++)
+        {
+            cache[i].lines[j].isValid = false;
+            cache[i].lines[j].tag     = 0;
+        }
+    }
+    *p_cache = cache;
+    return true;
+}
+
+bool isHit(unsigned long addr, CacheSet* set)
+{
+    unsigned long tag = parseTagBits(addr);
+    for (int i = 0; i < set->numLines; i++)
+    {
+        if (set->lines[i].isValid && set->lines[i].tag == tag)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void loadIntoCache(unsigned long addr, CacheSet* set)
+{
+    unsigned long tag = parseTagBits(addr);
+    if (set->numLines < E)
+    {
+        set->lines[set->numLines].isValid = true;
+        set->lines[set->numLines].tag     = tag;
+        set->numLines++;
+    }
+    else
+    {
+        // evict first one
+        evictCnt++;
+        set->lines[0].tag = tag;
+    }
+}
+
 int main(int argc, char* argv[])
 {
     int opt;
-
-    int   h_flag = 0, v_flag = 0;
-    int   s = -1, E = -1, b = -1;
-    char* tracefile = NULL;
 
     while ((opt = getopt(argc, argv, "hvs:E:b:t:")) != -1)
     {
@@ -60,10 +129,10 @@ int main(int argc, char* argv[])
     }
     printf("s: %d, E: %d, b: %d, h_flag: %d, v_flag: %d\n", s, E, b, h_flag, v_flag);
 
-    CacheSet* cache = (CacheSet*) malloc((1 << s) * sizeof(CacheSet));
-    if (cache == NULL)
+    CacheSet* cache = NULL;
+    if (!initCache(&cache))
     {
-        printf("Mem Alloc for cache failed\n");
+        printf("Failed to set up cache\n");
         return 1;
     }
 
@@ -85,7 +154,35 @@ int main(int argc, char* argv[])
             continue;
 
         sscanf(readline + 1, " %c %lx,%d", &op, &addr, &size);
-        printf("Op: %c, Addr: 0x%lx, Sz: %d\n", op, addr, size);
+        /*printf("Op: %c, Addr: 0x%lx, Sz: %d\n", op, addr, size);*/
+
+        unsigned long setIndex = parseSetIndex(addr);
+        CacheSet*     set      = &cache[setIndex];
+        if (op == 'L')
+        {
+            if (!isHit(addr, set))
+            {
+                printf("L %lx,%d miss", addr, size);
+                missCnt++;
+                if (set->numLines == E)
+                {
+                    printf(" eviction");
+                }
+                loadIntoCache(addr, set);
+            }
+            else
+            {
+                hitCnt++;
+                printf("L %lx,%d hit", addr, size);
+            }
+        }
+        else if (op == 'S')
+        {
+        }
+        else if (op == 'M')
+        {
+        }
+        printf("\n");
     }
 
     printSummary(0, 0, 0);
