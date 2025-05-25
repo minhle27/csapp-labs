@@ -10,14 +10,16 @@ int missCnt  = 0;
 int hitCnt   = 0;
 int evictCnt = 0;
 
-int   h_flag = 0, v_flag = 0;
-int   s = -1, E = -1, b = -1;
-char* tracefile = NULL;
+int           h_flag = 0, v_flag = 0;
+int           s = -1, E = -1, b = -1;
+char*         tracefile     = NULL;
+unsigned long accessCounter = 0;
 
 typedef struct
 {
     bool          isValid;
     unsigned long tag;
+    unsigned long lastUsed;
 } CacheLine;
 
 typedef struct
@@ -56,10 +58,15 @@ bool initCache(CacheSet** p_cache)
     {
         cache[i].numLines = 0;
         cache[i].lines    = (CacheLine*) malloc(E * sizeof(CacheLine));
+        if (cache[i].lines == NULL)
+        {
+            return false;
+        }
         for (int j = 0; j < E; j++)
         {
-            cache[i].lines[j].isValid = false;
-            cache[i].lines[j].tag     = 0;
+            cache[i].lines[j].isValid  = false;
+            cache[i].lines[j].tag      = 0;
+            cache[i].lines[j].lastUsed = 0;
         }
     }
     *p_cache = cache;
@@ -73,6 +80,8 @@ bool isHit(unsigned long addr, CacheSet* set)
     {
         if (set->lines[i].isValid && set->lines[i].tag == tag)
         {
+            accessCounter++;
+            set->lines[i].lastUsed = accessCounter;
             return true;
         }
     }
@@ -84,15 +93,28 @@ void loadIntoCache(unsigned long addr, CacheSet* set)
     unsigned long tag = parseTagBits(addr);
     if (set->numLines < E)
     {
-        set->lines[set->numLines].isValid = true;
-        set->lines[set->numLines].tag     = tag;
+        set->lines[set->numLines].isValid  = true;
+        set->lines[set->numLines].tag      = tag;
+        set->lines[set->numLines].lastUsed = accessCounter;
         set->numLines++;
     }
     else
     {
-        // evict first one
+        // LRU eviction
+
+        int           lruId  = 0;
+        unsigned long oldest = set->lines[0].lastUsed;
+        for (int i = 1; i < E; i++)
+        {
+            if (set->lines[i].lastUsed < oldest)
+            {
+                oldest = set->lines[i].lastUsed;
+                lruId  = i;
+            }
+        }
         evictCnt++;
-        set->lines[0].tag = tag;
+        set->lines[lruId].tag      = tag;
+        set->lines[lruId].lastUsed = accessCounter;
     }
 }
 
@@ -127,7 +149,7 @@ int main(int argc, char* argv[])
                 return 1;
         }
     }
-    printf("s: %d, E: %d, b: %d, h_flag: %d, v_flag: %d\n", s, E, b, h_flag, v_flag);
+    /*printf("s: %d, E: %d, b: %d, h_flag: %d, v_flag: %d\n", s, E, b, h_flag, v_flag);*/
 
     CacheSet* cache = NULL;
     if (!initCache(&cache))
@@ -173,20 +195,64 @@ int main(int argc, char* argv[])
             else
             {
                 hitCnt++;
+
                 printf("L %lx,%d hit", addr, size);
             }
         }
         else if (op == 'S')
         {
+            if (!isHit(addr, set))
+            {
+                printf("S %lx,%d miss", addr, size);
+                missCnt++;
+                if (set->numLines == E)
+                {
+                    printf(" eviction");
+                }
+                loadIntoCache(addr, set);
+            }
+            else
+            {
+                hitCnt++;
+                printf("S %lx,%d hit", addr, size);
+            }
         }
         else if (op == 'M')
         {
+            if (!isHit(addr, set))
+            {
+                printf("M %lx,%d miss ", addr, size);
+                missCnt++;
+                if (set->numLines == E)
+                {
+                    printf("eviction ");
+                }
+                loadIntoCache(addr, set);
+            }
+            else
+            {
+                hitCnt++;
+                printf("M %lx,%d hit ", addr, size);
+            }
+            hitCnt++;
+            printf("hit");
         }
-        printf("\n");
+        printf(" \n");
     }
 
-    printSummary(0, 0, 0);
+    printSummary(hitCnt, missCnt, evictCnt);
+
+    fclose(fp);
+
+    // free all lines and cache
+    for (int i = 0; i < 1 << s; i++)
+    {
+        free(cache[i].lines);
+        cache[i].lines = NULL;
+    }
 
     free(cache);
+    cache = NULL;
+
     return 0;
 }
